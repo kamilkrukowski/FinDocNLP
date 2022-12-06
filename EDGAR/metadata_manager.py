@@ -85,12 +85,16 @@ class metadata_manager(dict):
                 return meta[file]['filename']
         return None
 
-    def get_submissions(self, tikr):
+    def get_submissions(self, tikr: str, *, only_annotated: bool = False, only_unannotated: bool = False):
         """
         Parameters
         ---------
         tikr: str
             a company identifier to query
+        only_annotated: str, optional
+            if 'True', then only returns documents with iXBRL annotations
+        only_unannotated: str, optional
+            if 'True', then only returns documents without iXBRL annotations. Mutually exclusive with only_annotated
 
         Returns
         --------
@@ -98,9 +102,82 @@ class metadata_manager(dict):
             a list of string names of filing submissions under the company tikr
 
         """
+        if only_annotated and only_unannotated:
+            raise RuntimeError('Set mutually exclusive arguments')
+        
         if 'submissions' in self[tikr]:
+            if only_annotated:
+                return [i for i in self[tikr]['submissions'] if self._is_10q_annotated(tikr, i)]
+            if only_unannotated:
+                return [i for i in self[tikr]['submissions'] if not self._is_10q_annotated(tikr, i)]
             return [i for i in self[tikr]['submissions']]
         return None
+    
+    """
+        Returns whether given tikr submission has annotated ix elements
+    """
+    def _is_10q_annotated(self, tikr, submission) -> bool:
+        """
+        Parameters
+        ---------
+        tikr: str
+            a company identifier to query
+        submission: str
+            an SEC filing to query
+
+        Returns
+        --------
+        submissions: list
+            a list of string names of filing submissions under the company tikr
+
+        """
+
+        assert tikr in self
+        assert submission in self[tikr]['submissions']
+
+        is_annotated = self[tikr]['submissions'][submission]['attrs'].get('is_10q_annotated', None)
+        if is_annotated is not None:
+            return is_annotated
+        else:
+            return self._gen_10q_annotated_metadata(tikr, submission)
+
+    def _gen_10q_annotated_metadata(self, tikr: str, submission: str):
+
+        annotated_tag_list = {'ix:nonnumeric','ix:nonfraction'}
+
+        _file = None
+        files = self[tikr]['submissions'][submission]['documents']
+        for file in files:
+            if files[file]['type'] == '10-Q':
+                _file = files[file]['filename']
+
+        # TODO handle ims-document
+        if _file is None:
+            warnings.warn("Document Encountered without 10-Q", RuntimeWarning)
+            for file in files:
+                if files[file].get('is_ims-document', False):
+                    self.metadata[tikr]['submissions'][submission]['attrs']['is_10q_annotated'] = False
+                    warnings.warn("Encountered unlabeled IMS-DOCUMENT", RuntimeWarning)
+                    return False
+            if len(files) == 0:
+                warnings.warn("No Files under Document Submission", RuntimeWarning)
+                return False
+
+        assert _file is not None, 'Missing 10-Q'
+
+        data = None
+        fname = os.path.join(self.data_dir, 'processed', tikr, submission, _file)
+        with open(fname, 'r') as f:
+            data = f.read();
+        for tag in annotated_tag_list:
+            if re.search(tag, data):
+                self.metadata[tikr]['submissions'][submission]['attrs']['is_10q_annotated'] = True
+                return True
+        self.metadata[tikr]['submissions'][submission]['attrs']['is_10q_annotated'] = False
+        return False
+
+
+
 
     def find_sequence_of_file(self, tikr: str, submission: str, filename: str):
         level = self[tikr]['submissions'][submission]['documents']
