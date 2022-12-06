@@ -141,6 +141,8 @@ tikrs = [i.split(',')[0].lower() for i in tikrs.split('\n')]
 if args.demo:
     tikrs = ['nflx']
 
+kept_labels = set(open(os.path.join('..','popular_labels.txt'), 'r').read().strip().split('\n'))
+
 trainset = []
 for tikr in tikrs:
     metadata.load_tikr_metadata(tikr)
